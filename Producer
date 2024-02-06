@@ -1,0 +1,168 @@
+import cv2
+import mediapipe as mp
+import time
+import keras
+import pyautogui
+import numpy as np
+import keyboard
+import uuid
+import time
+from skimage import io
+from kafka import KafkaProducer
+
+
+#%% model loading 
+model=keras.models.load_model("C:/Users/erenm/OneDrive/Masaüstü/mask detector/225x225+1_version_six")
+
+#%%producer
+
+producer = KafkaProducer(bootstrap_servers=['localhost:9092'])
+#%%
+
+
+
+
+
+#%% mediapipe human face detector
+class FaceDetector():
+    
+
+
+        
+    def __init__(self, minDetectionCon=0.5):
+ 
+        self.minDetectionCon = minDetectionCon
+ 
+        self.mpFaceDetection = mp.solutions.face_detection
+        self.mpDraw = mp.solutions.drawing_utils
+        self.faceDetection = self.mpFaceDetection.FaceDetection(self.minDetectionCon)
+ 
+    def findFaces(self, img, draw=True):
+ 
+        imgRGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        self.results = self.faceDetection.process(imgRGB)
+        bboxs = []
+        if self.results.detections:
+            for id, detection in enumerate(self.results.detections):
+                bboxC = detection.location_data.relative_bounding_box
+                ih, iw, ic = img.shape
+                bbox = int(bboxC.xmin * iw), int(bboxC.ymin * ih), \
+                       int(bboxC.width * iw), int(bboxC.height * ih)
+                
+                    
+                
+
+                
+                
+                
+                bboxs.append([id, bbox, detection.score])
+                if draw:
+                    img,x,x1,y,y1 = self.fancyDraw(img,bbox)
+
+                            
+                    cv2.putText(img, f'{int(detection.score[0] * 100)}%',
+                            (bbox[0], bbox[1] - 20), cv2.FONT_HERSHEY_PLAIN,
+                            2, (255, 0, 255), 2)
+        return img, bboxs ,x,x1,y,y1,bbox
+ 
+    def fancyDraw(self, img, bbox, l=30, t=5, rt= 1):
+        x, y, w, h = bbox
+        x1, y1 = x + w, y + h
+ 
+        cv2.rectangle(img, bbox, (255, 0, 255), 0)
+
+        return img,x,x1,y,y1
+#%% 
+ 
+
+
+
+
+
+def predict(prediction):
+    
+    
+    
+    if prediction[0,0]>prediction[0,1]:
+        
+        prediction=[prediction[0,0],"no_mask"]
+        return prediction
+        
+        
+    elif prediction[0,1]>prediction[0,0]:
+        
+        prediction=[prediction[0,1],"mask"]
+        return prediction
+    
+
+cap = cv2.VideoCapture(0)
+pTime = 0
+detector = FaceDetector()    
+counter=0
+
+while True:
+    try:
+        
+            
+        success, img = cap.read()
+
+            
+        img, bboxs,x,x1,y,y1,bbox = detector.findFaces(img)
+        #%% preprocesssing
+        roi = img[y: y1, x: x1]
+        img_array = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        img_array=img_array/255
+        img_array=cv2.resize(img_array, (225, 225))
+        img_array=img_array.reshape(-1,225,225,1)
+        #%%
+        
+        #%%prediction
+        prediction = model.predict(img_array)
+        out=predict(prediction)
+        #%%
+        out_0=out[0]
+        out_1=out[1]
+        if out_1 == ("no_mask"):
+            #%% producer
+            producer.send('deneme', b' no_mask by 12 fps')
+            producer.flush()
+            #%% 
+            
+        elif out_1 == ("mask"):
+            #%% producer
+            producer.send('deneme', b' masked by 12 fps')
+            producer.flush()
+            #%% 
+            
+            
+        out_0=np.round(out[0], 2)
+        cv2.putText(img, f'{out_1+str(out_0)}%', (bbox[0], bbox[1] ), cv2.FONT_HERSHEY_PLAIN, 2, (255, 0, 0), 2)
+
+
+        
+            
+        cTime = time.time()
+        fps = 1 / (cTime - pTime)
+        pTime = cTime
+
+        
+        cv2.putText(img, f'FPS: {int(fps)}', (20, 70), cv2.FONT_HERSHEY_PLAIN, 3, (255, 0, 255), 2)
+        cv2.imshow("Image", img)
+        
+        cv2.waitKey(10)
+
+        
+
+        
+        
+    except :
+            continue
+
+
+     
+
+
+
+
+
+ 
